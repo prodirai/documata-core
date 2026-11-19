@@ -14,3 +14,5 @@ CREATE INDEX IF NOT EXISTS document_org ON documents(org);
 CREATE INDEX IF NOT EXISTS document_recipient ON documents(recipient);
 CREATE INDEX IF NOT EXISTS revision_digest ON revisions(digest);
 CREATE INDEX IF NOT EXISTS intent_rate ON intents(person,issued);
+CREATE TABLE IF NOT EXISTS restricted_folders(org TEXT REFERENCES organizations,name TEXT,PRIMARY KEY(org,name));
+CREATE TABLE IF NOT EXISTS folder_members(org TEXT,folder TEXT,person TEXT REFERENCES subjects,PRIMARY KEY(org,folder,person),FOREIGN KEY(org,folder) REFERENCES restricted_folders(org,name) ON DELETE CASCADE);

@@ -174,13 +174,33 @@ if __name__ == "__main__":
             pass
     restrict()
     try:
-        data = sys.stdin.buffer.read(10485761)
+        appendix = None
+        if len(sys.argv) == 3 and sys.argv[1] == "--append-page":
+            size = int(sys.argv[2])
+            if not 0 < size <= 10485760:
+                raise ValueError()
+            data = sys.stdin.buffer.read(size)
+            appendix = sys.stdin.buffer.read(1500001)
+            if len(appendix) > 1500000:
+                raise ValueError()
+        else:
+            data = sys.stdin.buffer.read(10485761)
         if len(data) > 10485760 or not data.startswith(b"%PDF-"):
             raise ValueError()
         reader = PdfReader(io.BytesIO(data), strict=True)
         transcript = inspect(reader)
         result = {"text": transcript, "pages": len(reader.pages)}
-        if len(sys.argv) > 1:
+        if appendix is not None:
+            note = PdfReader(io.BytesIO(appendix), strict=True)
+            if len(note.pages) != 1:
+                raise ValueError()
+            writer = PdfWriter()
+            writer.append(reader)
+            writer.add_page(note.pages[0])
+            output = io.BytesIO()
+            writer.write(output)
+            result["artifact"] = base64.b64encode(output.getvalue()).decode()
+        elif len(sys.argv) > 1:
             result["artifact"] = marked(reader, sys.argv[1])
         print(json.dumps(result, ensure_ascii=True))
     except Exception:
