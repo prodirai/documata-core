@@ -29,13 +29,28 @@ class Registry:
             "SELECT * FROM members WHERE org=? AND person=?", (actor.org, actor.person)
         ).fetchone()
 
+    @staticmethod
+    def folder_allowed(db, actor, folder):
+        return (
+            db.execute(
+                """SELECT 1 FROM members m WHERE m.org=? AND m.person=? AND
+            (m.role='owner' OR NOT EXISTS(SELECT 1 FROM restricted_folders WHERE org=m.org AND name=?)
+            OR EXISTS(SELECT 1 FROM folder_members WHERE org=m.org AND folder=? AND person=m.person))""",
+                (actor.org, actor.person, folder, folder),
+            ).fetchone()
+            is not None
+        )
+
     def visible(self, db, actor):
         if actor.org:
-            if not self.member(db, actor):
-                return []
             rows = db.execute(
-                "SELECT * FROM documents WHERE org=? ORDER BY rowid DESC", (actor.org,)
+                """SELECT d.* FROM documents d JOIN members m ON m.org=d.org WHERE m.person=? AND m.org=?
+                AND (m.role='owner' OR NOT EXISTS(SELECT 1 FROM restricted_folders WHERE org=m.org AND name=d.folder)
+                OR EXISTS(SELECT 1 FROM folder_members WHERE org=m.org AND folder=d.folder AND person=m.person))
+                ORDER BY d.rowid DESC""",
+                (actor.person, actor.org),
             )
+            return [dict(row) for row in rows]
         else:
             rows = db.execute(
                 """SELECT d.* FROM documents d JOIN subjects s ON d.recipient=s.id
@@ -51,7 +66,9 @@ class Registry:
             db.execute("SELECT * FROM documents WHERE id=?", (ident,)).fetchone()
         )
         if actor.org:
-            allowed = actor.org == row["org"] and self.member(db, actor)
+            allowed = actor.org == row["org"] and self.folder_allowed(
+                db, actor, row["folder"]
+            )
         else:
             allowed = (
                 row["recipient"] == actor.person
@@ -112,6 +129,8 @@ class Registry:
                 and kind != "Договор"
             )
             folder = base["folder"]
+        require(self.folder_allowed(db, actor, folder))
+        require(self.folder_allowed(db, Actor(signer, actor.org, ""), folder))
         self.store.read(checksum)
         ident = token()
         db.execute(

@@ -138,6 +138,25 @@ class RegistryTest(unittest.TestCase):
                 db.execute("SELECT count(*) FROM signatures").fetchone()[0], 0
             )
 
+    def test_restricted_folder_acl(self):
+        with self.store.transaction() as db:
+            db.execute("INSERT INTO members VALUES('o','eva','viewer',0)")
+            db.execute("INSERT INTO restricted_folders VALUES('o','Мои документы')")
+            eva = Actor("eva", "o", "s3")
+            self.assertEqual(self.reg.visible(db, eva), [])
+            with self.assertRaises(Problem):
+                self.reg.document(db, eva, self.doc)
+            db.execute("INSERT INTO folder_members VALUES('o','Мои документы','eva')")
+            self.assertEqual(self.reg.document(db, eva, self.doc)["id"], self.doc)
+
+    def test_canonical_vector(self):
+        import json
+        from pathlib import Path
+        from documata.store import canonical
+
+        expected = Path(__file__).with_name("canonical-vector.json").read_text().strip()
+        self.assertEqual(canonical(json.loads(expected)), expected)
+
     def test_worker(self):
         self.assertEqual(inspect_pdf(self.pdf)["pages"], 1)
         self.assertIn("artifact", inspect_pdf(self.pdf, "Documata / simulation"))

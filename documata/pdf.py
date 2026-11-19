@@ -23,12 +23,16 @@ def watch_memory(child, finished):
             return
 
 
-def inspect_pdf(content, label=None):
+def inspect_pdf(content, label=None, *, trusted_appendix=None):
     require(
         0 < len(content) <= 10 * 1024**2, "FILE_SIZE", "Выберите PDF до 10 МБ.", 422
     )
     args = [sys.executable, "-IB", str(Path(__file__).with_name("pdf_worker.py"))]
-    if label:
+    if trusted_appendix is not None:
+        require(len(trusted_appendix) <= 1500000 and not label)
+        args.extend(["--append-page", str(len(content))])
+        content += trusted_appendix
+    elif label:
         args.append(label)
     finished = threading.Event()
     with subprocess.Popen(
