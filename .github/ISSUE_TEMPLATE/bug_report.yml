@@ -1,0 +1,25 @@
+name: Ошибка
+description: Сообщить о воспроизводимой проблеме.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: "Для уязвимостей используйте Security → Report a vulnerability. Примеры должны содержать только вымышленные данные."
+  - type: input
+    id: version
+    attributes:
+      label: Версия или commit
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как воспроизвести
+      description: Шаги, ожидаемый и фактический результат.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Окружение
+      description: ОС, способ запуска и другие значимые сведения.
