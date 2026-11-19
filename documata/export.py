@@ -6,16 +6,20 @@ import zipfile
 from .store import canonical, digest
 
 
-def pack(protocol, original, artifact=None):
+def pack(protocol, original, artifact=None, *, registry_key=None):
     files = {"original.pdf": original, "protocol.json": canonical(protocol).encode()}
     if artifact:
         files["copy.pdf"] = artifact
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2 if registry_key else 1,
         "environment": "local",
         "assurance": "simulated",
         "files": {k: digest(v) for k, v in files.items()},
     }
+    if registry_key:
+        manifest["registry_seal"] = registry_key.seal(
+            {"purpose": "documata.export-inventory", "manifest": manifest}
+        )
     files["manifest.json"] = canonical(manifest).encode()
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -44,7 +48,7 @@ def read_json(data):
     )
 
 
-def verify(data, trusted_key=None):
+def verify(data, trusted_key=None, *, require_envelope_seal=False):
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         infos = z.infolist()
         if len(infos) not in (3, 4) or sum(i.file_size for i in infos) > 32 * 1024**2:
@@ -52,11 +56,27 @@ def verify(data, trusted_key=None):
         manifest = read_json(z.read("manifest.json"))
         files = manifest["files"]
         if (
-            manifest["schema_version"] != 1
+            manifest["schema_version"] not in (1, 2)
             or manifest["assurance"] != "simulated"
             or manifest["environment"] != "local"
         ):
             raise ValueError("Unsupported evidence schema")
+        if require_envelope_seal and (
+            not trusted_key or manifest["schema_version"] != 2
+        ):
+            raise ValueError("A sealed inventory and a separate trust key are required")
+        if manifest["schema_version"] == 2:
+            from .seal import check_seal
+
+            seal = manifest.pop("registry_seal", None)
+            if not isinstance(seal, dict):
+                raise ValueError("Missing inventory seal")
+            if trusted_key:
+                check_seal(
+                    {"purpose": "documata.export-inventory", "manifest": manifest},
+                    seal,
+                    trusted_key,
+                )
         if set(files) not in (
             {"protocol.json", "original.pdf"},
             {"protocol.json", "original.pdf", "copy.pdf"},
@@ -88,8 +108,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("archive", type=Path)
     parser.add_argument("--trusted-key", type=Path)
+    parser.add_argument(
+        "--require-envelope-seal",
+        action="store_true",
+        help="Require a v2 sealed inventory and a separately trusted key",
+    )
     args = parser.parse_args()
-    p = verify(args.archive.read_bytes(), args.trusted_key)
+    p = verify(
+        args.archive.read_bytes(),
+        args.trusted_key,
+        require_envelope_seal=args.require_envelope_seal,
+    )
     print(
         "Checksums match. Simulated evidence. Revision",
         p["revision"],
@@ -97,4 +126,6 @@ if __name__ == "__main__":
         len(p["signatures"]),
     )
     if args.trusted_key:
-        print("Registry seals verified using the supplied trust anchor.")
+        print("Snapshot seals verified using the supplied trust anchor.")
+    if args.require_envelope_seal:
+        print("Sealed export inventory verified.")

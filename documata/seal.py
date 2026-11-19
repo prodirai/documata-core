@@ -41,26 +41,29 @@ class RegistryKey:
         }
 
 
-def check_signatures(protocol, trusted_key):
+def check_seal(value, seal, trusted_key):
     key = Path(trusted_key)
-    key_id = digest(key.read_bytes())
+    if (
+        not isinstance(seal, dict)
+        or seal.get("key_id") != digest(key.read_bytes())
+        or seal.get("algorithm") != "ECDSA-P256-SHA256"
+        or seal.get("schema_version") != 1
+    ):
+        raise ValueError("Missing or untrusted registry seal")
+    with tempfile.NamedTemporaryFile() as f:
+        f.write(base64.b64decode(seal["value"], validate=True))
+        f.flush()
+        try:
+            openssl(
+                ["dgst", "-sha256", "-verify", str(key), "-signature", f.name],
+                canonical(value).encode(),
+            )
+        except subprocess.CalledProcessError as error:
+            raise ValueError("Invalid registry seal") from error
+
+
+def check_signatures(protocol, trusted_key):
     for item in protocol["signatures"]:
         snapshot = dict(item)
         seal = snapshot.pop("registry_seal", None)
-        if (
-            not seal
-            or seal.get("key_id") != key_id
-            or seal.get("algorithm") != "ECDSA-P256-SHA256"
-            or seal.get("schema_version") != 1
-        ):
-            raise ValueError("Missing or untrusted registry seal")
-        with tempfile.NamedTemporaryFile() as f:
-            f.write(base64.b64decode(seal["value"], validate=True))
-            f.flush()
-            try:
-                openssl(
-                    ["dgst", "-sha256", "-verify", str(key), "-signature", f.name],
-                    canonical(snapshot).encode(),
-                )
-            except subprocess.CalledProcessError as error:
-                raise ValueError("Invalid registry seal") from error
+        check_seal(snapshot, seal, trusted_key)

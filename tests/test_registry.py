@@ -77,6 +77,24 @@ class RegistryTest(unittest.TestCase):
             with self.assertRaises(Problem):
                 self.reg.revise(db, self.customer, self.doc, 1, self.sha, "")
 
+    def test_portable_inventory_attestation(self):
+        from documata.export import pack, verify
+        from documata.store import digest
+
+        protocol = {
+            "document": "fixture",
+            "revision": 1,
+            "original_sha256": digest(self.pdf),
+            "signatures": [],
+        }
+        key = self.store.root / "registry.public"
+        certified = pack(protocol, self.pdf, registry_key=self.reg.key)
+        self.assertEqual(verify(certified, key, require_envelope_seal=True), protocol)
+        with self.assertRaises(ValueError):
+            verify(pack(protocol, self.pdf), key, require_envelope_seal=True)
+        with self.assertRaises(ValueError):
+            verify(certified, require_envelope_seal=True)
+
     def test_access_and_revoke(self):
         with self.store.transaction() as db:
             for a in [
