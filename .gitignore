@@ -16,3 +16,6 @@ coverage/
 secrets/
 backups/
 *.log
+
+__pycache__/
+*.py[cod]
