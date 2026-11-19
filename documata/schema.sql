@@ -1,0 +1,16 @@
+CREATE TABLE IF NOT EXISTS core_version(version INTEGER PRIMARY KEY CHECK(version=1));
+INSERT OR IGNORE INTO core_version VALUES(1);
+CREATE TABLE IF NOT EXISTS subjects(id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT NOT NULL, identity TEXT, channel TEXT, blocked INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS organizations(id TEXT PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS members(org TEXT REFERENCES organizations, person TEXT REFERENCES subjects, role TEXT CHECK(role IN ('owner','preparer','signer','viewer')), authority INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(org,person));
+CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, org TEXT NOT NULL REFERENCES organizations, recipient TEXT NOT NULL REFERENCES subjects, signer TEXT NOT NULL REFERENCES subjects, title TEXT NOT NULL, kind TEXT NOT NULL, parent TEXT REFERENCES documents, folder TEXT NOT NULL, revision INTEGER NOT NULL, state TEXT NOT NULL, rules TEXT NOT NULL, price INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS revisions(doc TEXT REFERENCES documents, revision INTEGER, digest TEXT NOT NULL, transcript TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY(doc,revision));
+CREATE TABLE IF NOT EXISTS intents(id TEXT PRIMARY KEY, person TEXT NOT NULL, session TEXT NOT NULL, doc TEXT NOT NULL, revision INTEGER NOT NULL, side TEXT NOT NULL, context TEXT NOT NULL, verifier TEXT NOT NULL, issued INTEGER NOT NULL, expires INTEGER NOT NULL, failures INTEGER NOT NULL DEFAULT 0, committed INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(doc,revision) REFERENCES revisions);
+CREATE TABLE IF NOT EXISTS signatures(doc TEXT NOT NULL,revision INTEGER NOT NULL,side TEXT NOT NULL,snapshot TEXT NOT NULL,intent TEXT UNIQUE REFERENCES intents, PRIMARY KEY(doc,revision,side), FOREIGN KEY(doc,revision) REFERENCES revisions);
+CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, doc TEXT NOT NULL REFERENCES documents, revision INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, at INTEGER NOT NULL, detail TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY, doc TEXT NOT NULL REFERENCES documents, revision INTEGER NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', UNIQUE(doc,revision,kind));
+CREATE TABLE IF NOT EXISTS invitations(digest TEXT PRIMARY KEY,doc TEXT NOT NULL REFERENCES documents,revision INTEGER NOT NULL,expires INTEGER NOT NULL,active INTEGER NOT NULL DEFAULT 1);
+CREATE INDEX IF NOT EXISTS document_org ON documents(org);
+CREATE INDEX IF NOT EXISTS document_recipient ON documents(recipient);
+CREATE INDEX IF NOT EXISTS revision_digest ON revisions(digest);
+CREATE INDEX IF NOT EXISTS intent_rate ON intents(person,issued);

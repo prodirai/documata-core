@@ -1,0 +1,57 @@
+openapi: 3.1.0
+info:
+  title: Document signing
+  version: 1.0.0
+paths:
+  /v1/signing-intents:
+    post:
+      operationId: createIntent
+      security: [{ session: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [document, revision, sha256, rules_hash, accepted]
+              properties:
+                document: {type: string}
+                revision: {type: integer, minimum: 1}
+                sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+                rules_hash: {type: string, pattern: '^[a-f0-9]{64}$'}
+                accepted: {const: true}
+      responses:
+        '200': {description: Intent created and challenge scheduled}
+        '403': {description: Subject or authority denied}
+        '409': {description: Changed revision or state}
+        '429': {description: Challenge limit}
+  /v1/signing-intents/{id}/confirm:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: string}}
+    post:
+      operationId: confirmIntent
+      security: [{ session: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: {type: string, pattern: '^[0-9]{6}$'}
+      responses:
+        '200': {description: Committed or incorrect code with remaining attempts}
+        '403': {description: Access or authority denied}
+        '410': {description: Expired or exhausted challenge}
+  /v1/operations/{id}:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: getOperation
+      security: [{ session: [] }]
+      responses:
+        '200': {description: Operation status in its original authenticated context}
+components:
+  securitySchemes:
+    session: {type: apiKey, in: cookie, name: dm_session}

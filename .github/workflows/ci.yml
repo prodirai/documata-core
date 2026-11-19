@@ -20,6 +20,8 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - run: python3 scripts/check_repository.py
+      - run: python3 -m venv .local/venv && .local/venv/bin/pip install --require-hashes -r requirements.lock
+      - run: .local/venv/bin/python -m unittest discover -s tests -v
   secrets:
     name: Secret scan
     runs-on: ubuntu-24.04
