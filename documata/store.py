@@ -9,27 +9,45 @@ import tempfile
 import time
 from contextlib import contextmanager
 
+
 class Problem(Exception):
     def __init__(self, code, message, status=409):
         super().__init__(message)
         self.code, self.status = code, status
 
-def require(condition, code="ACCESS_DENIED", message="Для этого действия нужны другие права.", status=403):
+
+def require(
+    condition,
+    code="ACCESS_DENIED",
+    message="Для этого действия нужны другие права.",
+    status=403,
+):
     if not condition:
         raise Problem(code, message, status)
+
 
 def found(row):
     require(row is not None, "NOT_FOUND", "Запись недоступна.", 404)
     return row
 
+
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 
+
 def canonical(value):
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
 
 def token():
     return secrets.token_urlsafe(24)
+
 
 class Store:
     def __init__(self, path, clock=time.time):
@@ -44,9 +62,11 @@ class Store:
         self.key = key.read_bytes()
         with self.transaction() as db:
             db.executescript(Path(__file__).with_name("schema.sql").read_text())
-            for table in ("signatures","events","revisions"):
-                for action in ("UPDATE","DELETE"):
-                    db.execute(f"CREATE TRIGGER IF NOT EXISTS immutable_{table}_{action} BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT,'immutable record'); END")
+            for table in ("signatures", "events", "revisions"):
+                for action in ("UPDATE", "DELETE"):
+                    db.execute(
+                        f"CREATE TRIGGER IF NOT EXISTS immutable_{table}_{action} BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT,'immutable record'); END"
+                    )
 
     def now(self):
         return int(self.clock())
@@ -92,13 +112,26 @@ class Store:
 
     def read(self, checksum):
         import re
-        require(re.fullmatch("[a-f0-9]{64}",checksum), "INTEGRITY", "Неверная ссылка на оригинал.", 503)
+
+        require(
+            re.fullmatch("[a-f0-9]{64}", checksum),
+            "INTEGRITY",
+            "Неверная ссылка на оригинал.",
+            503,
+        )
         try:
             content = (self.blobs / checksum).read_bytes()
         except FileNotFoundError:
             content = b""
-        require(content and hmac.compare_digest(digest(content),checksum), "INTEGRITY", "Оригинал недоступен. Подписание остановлено.", 503)
+        require(
+            content and hmac.compare_digest(digest(content), checksum),
+            "INTEGRITY",
+            "Оригинал недоступен. Подписание остановлено.",
+            503,
+        )
         return content
 
     def proof(self, purpose, value):
-        return hmac.new(self.key,(purpose+"\0"+value).encode(),hashlib.sha256).hexdigest()
+        return hmac.new(
+            self.key, (purpose + "\0" + value).encode(), hashlib.sha256
+        ).hexdigest()
