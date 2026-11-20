@@ -62,7 +62,7 @@ class Store:
         self.key = key.read_bytes()
         with self.transaction() as db:
             db.executescript(Path(__file__).with_name("schema.sql").read_text())
-            for table in ("signatures", "events", "revisions"):
+            for table in ("signatures", "events", "revisions", "review_copies"):
                 for action in ("UPDATE", "DELETE"):
                     db.execute(
                         f"CREATE TRIGGER IF NOT EXISTS immutable_{table}_{action} BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT,'immutable record'); END"
