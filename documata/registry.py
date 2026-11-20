@@ -171,6 +171,19 @@ class Registry:
             )
         )
 
+    def review_manifest(self, db, doc, revision):
+        row = db.execute(
+            """SELECT r.digest, c.digest, s.intent FROM review_copies c
+               JOIN revisions r USING(doc,revision) JOIN signatures s USING(doc,revision)
+               WHERE c.doc=? AND c.revision=? AND s.side='customer'""",
+            (doc, revision),
+        ).fetchone()
+        if row:
+            return {
+                "schema_version": 1, "document": doc, "revision": revision,
+                "source_sha256": row[0], "review_sha256": row[1], "customer_intent": row[2],
+            }
+
     def context(self, db, actor, ident, rev):
         doc = self.document(db, actor, ident)
         require(
@@ -213,7 +226,9 @@ class Registry:
                 "SELECT name FROM organizations WHERE id=?", (doc["org"],)
             ).fetchone()
         )
+        review = self.review_manifest(db, ident, rev) if side == "performer" else None
         return {
+            **({"review_manifest": review, "viewed_sha256": review["review_sha256"]} if review else {}),
             "schema_version": 1,
             "environment": "local",
             "assurance": "simulated",
@@ -238,7 +253,7 @@ class Registry:
         ctx = self.context(db, actor, ident, rev)
         require(
             accepted is True
-            and viewed_hash == ctx["sha256"]
+            and viewed_hash == ctx.get("viewed_sha256", ctx["sha256"])
             and rules_hash == ctx["rules_sha256"],
             "CONSENT_REQUIRED",
             "Прочитайте PDF и примите показанные правила.",

@@ -77,6 +77,33 @@ class RegistryTest(unittest.TestCase):
             with self.assertRaises(Problem):
                 self.reg.revise(db, self.customer, self.doc, 1, self.sha, "")
 
+    def test_review_copy_binds_consent_and_export_to_same_bytes(self):
+        op, code = self.intent()
+        self.confirm(op, code)
+        review = b"fixture with customer attestation"
+        checksum = self.store.put(review)
+        with self.store.transaction() as db:
+            db.execute("INSERT INTO review_copies VALUES(?,1,?)", (self.doc, checksum))
+            manifest = self.reg.review_manifest(db, self.doc, 1)
+            with self.assertRaises(Problem):
+                self.reg.start(db, self.performer, self.doc, 1, self.sha,
+                               digest(RULES.encode()), True, lambda *_: None)
+            codes = []
+            pending = self.reg.start(db, self.performer, self.doc, 1, checksum,
+                                     digest(RULES.encode()), True, lambda _, c: codes.append(c))
+            for final in (False, True):
+                if final:
+                    self.reg.confirm(db, self.performer, pending, codes[0])
+                protocol = self.reg.evidence(db, self.customer, self.doc, 1)
+                protocol["review_manifest"] = manifest
+                archive = pack(protocol, self.pdf, b"final" if final else None, review=review,
+                               reader_layout=True, registry_key=self.reg.key)
+                self.assertEqual(verify(archive, self.store.root / "registry.public",
+                                        require_envelope_seal=True), protocol)
+            signer = protocol["signatures"][1]
+            self.assertEqual(signer["viewed_sha256"], checksum)
+            self.assertEqual(signer["review_manifest"]["customer_intent"], op)
+
     def test_portable_inventory_attestation(self):
         from documata.export import pack, verify
         from documata.store import digest
