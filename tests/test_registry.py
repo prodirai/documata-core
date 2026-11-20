@@ -92,7 +92,7 @@ class RegistryTest(unittest.TestCase):
             with self.subTest(has_copy=bool(copy)):
                 friendly = pack(protocol, self.pdf, copy, registry_key=self.reg.key, reader_layout=True)
                 self.assertEqual(verify(friendly, key, require_envelope_seal=True), protocol)
-                import io, zipfile
+                import zipfile
                 with zipfile.ZipFile(io.BytesIO(friendly)) as archive:
                     root_files = [name for name in archive.namelist() if "/" not in name]
                     self.assertEqual(root_files, ["Подписанный документ.pdf" if copy else "Исходный документ.pdf"])
@@ -182,6 +182,23 @@ class RegistryTest(unittest.TestCase):
 
         expected = Path(__file__).with_name("canonical-vector.json").read_text().strip()
         self.assertEqual(canonical(json.loads(expected)), expected)
+
+    def test_attached_footer_retains_page_count_and_adds_space(self):
+        import base64
+        from pypdf import PdfReader
+        from pypdf.generic import RectangleObject
+        original = PdfWriter()
+        original.add_blank_page(280, 360)
+        last = original.add_blank_page(330, 410)
+        last.cropbox = RectangleObject([10, 10, 310, 390])
+        last.rotate(90)
+        buf = io.BytesIO()
+        original.write(buf)
+        result = inspect_pdf(buf.getvalue(), trusted_appendix=self.pdf, attach_below=True)
+        pages = PdfReader(io.BytesIO(base64.b64decode(result["artifact"]))).pages
+        self.assertEqual(len(pages), 2)
+        self.assertEqual(tuple(pages[0].mediabox), (0, 0, 280, 360))
+        self.assertEqual(tuple(pages[-1].mediabox), (0, 0, 380, 700))
 
     def test_worker(self):
         self.assertEqual(inspect_pdf(self.pdf)["pages"], 1)
