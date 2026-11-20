@@ -6,12 +6,27 @@ import zipfile
 from .store import canonical, digest
 
 
-def pack(protocol, original, artifact=None, *, registry_key=None):
+# The readable envelope keeps just the document at the archive root.
+READER_PATHS = {
+    "original.pdf": "Для проверки/Исходный документ.pdf",
+    "copy.pdf": "Подписанный документ.pdf",
+    "protocol.json": "Для проверки/Протокол.json",
+    "manifest.json": "Для проверки/Состав комплекта.json",
+}
+
+
+def pack(protocol, original, artifact=None, *, registry_key=None, reader_layout=False):
+    if reader_layout and not registry_key:
+        raise ValueError("Reader envelopes require an inventory seal")
+    names = READER_PATHS if reader_layout else {}
     files = {"original.pdf": original, "protocol.json": canonical(protocol).encode()}
+    if reader_layout and not artifact:
+        names = {**names, "original.pdf": "Исходный документ.pdf"}
     if artifact:
         files["copy.pdf"] = artifact
+    files = {names.get(k, k): v for k, v in files.items()}
     manifest = {
-        "schema_version": 2 if registry_key else 1,
+        "schema_version": 3 if reader_layout else (2 if registry_key else 1),
         "environment": "local",
         "assurance": "simulated",
         "files": {k: digest(v) for k, v in files.items()},
@@ -20,7 +35,7 @@ def pack(protocol, original, artifact=None, *, registry_key=None):
         manifest["registry_seal"] = registry_key.seal(
             {"purpose": "documata.export-inventory", "manifest": manifest}
         )
-    files["manifest.json"] = canonical(manifest).encode()
+    files[names.get("manifest.json", "manifest.json")] = canonical(manifest).encode()
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, data in files.items():
@@ -53,19 +68,21 @@ def verify(data, trusted_key=None, *, require_envelope_seal=False):
         infos = z.infolist()
         if len(infos) not in (3, 4) or sum(i.file_size for i in infos) > 32 * 1024**2:
             raise ValueError("Invalid size")
-        manifest = read_json(z.read("manifest.json"))
+        names = READER_PATHS if READER_PATHS["manifest.json"] in z.namelist() else {}
+        manifest_name = names.get("manifest.json", "manifest.json")
+        manifest = read_json(z.read(manifest_name))
         files = manifest["files"]
         if (
-            manifest["schema_version"] not in (1, 2)
+            manifest["schema_version"] not in ((3,) if names else (1, 2))
             or manifest["assurance"] != "simulated"
             or manifest["environment"] != "local"
         ):
             raise ValueError("Unsupported evidence schema")
         if require_envelope_seal and (
-            not trusted_key or manifest["schema_version"] != 2
+            not trusted_key or manifest["schema_version"] not in (2, 3)
         ):
             raise ValueError("A sealed inventory and a separate trust key are required")
-        if manifest["schema_version"] == 2:
+        if manifest["schema_version"] in (2, 3):
             from .seal import check_seal
 
             seal = manifest.pop("registry_seal", None)
@@ -77,17 +94,19 @@ def verify(data, trusted_key=None, *, require_envelope_seal=False):
                     seal,
                     trusted_key,
                 )
-        if set(files) not in (
-            {"protocol.json", "original.pdf"},
-            {"protocol.json", "original.pdf", "copy.pdf"},
-        ) or sorted(z.namelist()) != sorted([*files, "manifest.json"]):
+        protocol_name = names.get("protocol.json", "protocol.json")
+        original_name = names.get("original.pdf", "original.pdf")
+        if names and names["copy.pdf"] not in files:
+            original_name = "Исходный документ.pdf"
+        required = {protocol_name, original_name}
+        if set(files) not in (required, required | {names.get("copy.pdf", "copy.pdf")}) or sorted(z.namelist()) != sorted([*files, manifest_name]):
             raise ValueError("Invalid inventory")
         if not all(
             digest(z.read(name)) == checksum for name, checksum in files.items()
         ):
             raise ValueError("Checksum mismatch")
-        protocol = read_json(z.read("protocol.json"))
-        if protocol["original_sha256"] != files["original.pdf"] or any(
+        protocol = read_json(z.read(protocol_name))
+        if protocol["original_sha256"] != files[original_name] or any(
             s["sha256"] != protocol["original_sha256"]
             or s["revision"] != protocol["revision"]
             or s["document"] != protocol["document"]
@@ -111,7 +130,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--require-envelope-seal",
         action="store_true",
-        help="Require a v2 sealed inventory and a separately trusted key",
+        help="Require a sealed inventory and a separately trusted key",
     )
     args = parser.parse_args()
     p = verify(

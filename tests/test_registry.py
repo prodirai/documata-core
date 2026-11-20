@@ -88,6 +88,14 @@ class RegistryTest(unittest.TestCase):
             "signatures": [],
         }
         key = self.store.root / "registry.public"
+        for copy in (None, self.pdf):
+            with self.subTest(has_copy=bool(copy)):
+                friendly = pack(protocol, self.pdf, copy, registry_key=self.reg.key, reader_layout=True)
+                self.assertEqual(verify(friendly, key, require_envelope_seal=True), protocol)
+                import io, zipfile
+                with zipfile.ZipFile(io.BytesIO(friendly)) as archive:
+                    root_files = [name for name in archive.namelist() if "/" not in name]
+                    self.assertEqual(root_files, ["Подписанный документ.pdf" if copy else "Исходный документ.pdf"])
         certified = pack(protocol, self.pdf, registry_key=self.reg.key)
         self.assertEqual(verify(certified, key, require_envelope_seal=True), protocol)
         with self.assertRaises(ValueError):

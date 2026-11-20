@@ -8,7 +8,7 @@ import io
 import json
 import resource
 import sys
-from pypdf import PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter, Transformation
 from pypdf.generic import (
     ArrayObject,
     DictionaryObject,
@@ -150,6 +150,29 @@ def marked(reader, label):
     return base64.b64encode(output.getvalue()).decode()
 
 
+def attach_footer(writer, reader, footer):
+    """Add space below the visible final page, preserving its crop and physical scale."""
+    last = reader.pages[-1]
+    if last.rotation:
+        last.transfer_rotation_to_content()
+    box = last.cropbox
+    unit = float(last.user_unit)
+    width, height = float(box.width) * unit, float(box.height) * unit
+    footer_width, footer_height = float(footer.mediabox.width), float(footer.mediabox.height)
+    if width > 14400 or height + footer_height > 14400:
+        writer.append(reader)
+        writer.add_page(footer)
+        return
+    for page in reader.pages[:-1]:
+        writer.add_page(page)
+    sheet_width = max(width, footer_width)
+    sheet = writer.add_blank_page(sheet_width, height + footer_height)
+    transform = (Transformation().translate(-float(box.left), -float(box.bottom))
+                 .scale(unit).translate((sheet_width - width) / 2, footer_height))
+    sheet.merge_transformed_page(last, transform)
+    sheet.merge_translated_page(footer, (sheet_width - footer_width) / 2, 0)
+
+
 if __name__ == "__main__":
     # Load codecs and parser support before removing filesystem access.
     import encodings.utf_16_be, encodings.utf_16_le, encodings.cp1252, encodings.latin_1, encodings.utf_8_sig
@@ -175,7 +198,7 @@ if __name__ == "__main__":
     restrict()
     try:
         appendix = None
-        if len(sys.argv) == 3 and sys.argv[1] == "--append-page":
+        if len(sys.argv) == 3 and sys.argv[1] in ("--append-page", "--attach-below"):
             size = int(sys.argv[2])
             if not 0 < size <= 10485760:
                 raise ValueError()
@@ -195,8 +218,11 @@ if __name__ == "__main__":
             if len(note.pages) != 1:
                 raise ValueError()
             writer = PdfWriter()
-            writer.append(reader)
-            writer.add_page(note.pages[0])
+            if sys.argv[1] == "--attach-below":
+                attach_footer(writer, reader, note.pages[0])
+            else:
+                writer.append(reader)
+                writer.add_page(note.pages[0])
             output = io.BytesIO()
             writer.write(output)
             result["artifact"] = base64.b64encode(output.getvalue()).decode()
